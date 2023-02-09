@@ -1,38 +1,32 @@
+dataframe <- read.csv("E:\\Data Science\\R\\it box\\data\\Social_Network_Ads.csv")
 
-df <- read.csv("D:\\Data Set\\DS Dasar Dataset\\Social_Network_Ads.csv")
+head(dataframe)
 
-head(df)
-
-df$User.ID <- NULL
+dataframe$User.ID <- NULL
 
 # feature scaling
-
-df[, 1:2] <- scale(df[, 1:2])
-
-head(df)
-
-# subseting data
+dataframe[, 1:2] <- scale(dataframe[, 1:2])
 
 library(caTools)
 
-set.seed(123)
+set.seed(42)
 
-split_data <- sample.split(Y = df$Purchased, SplitRatio = 0.7)
+split_data <- sample.split(Y = dataframe$Purchased, SplitRatio = 0.7)
+train_data <- subset(dataframe, split_data == TRUE)
+test_data <- subset(dataframe, split_data == FALSE)
 
-train_data <- subset(df, split_data == TRUE)
-test_data <- subset(df, split_data == FALSE)
-
-# membuat model
-
+# knn model
 library(class)
 
-y_pred <- knn(train = train_data[,-3],
-              test = test_data[,-3],
-              cl = train_data[,3],
-              k = 5) # cl = data yang akan digunakan sebagai pembelajaran
+y_pred <- knn(train = train_data[, -3],
+              test = test_data[, -3],
+              cl = train_data[, 3],
+              k = 5)
 
-summary(as.factor(y_pred))
+# cl = data yang akan digunakan sebagai pembelajaran
 
 result <- cbind(test_data, y_pred)
 
+summary(as.factor(result$Purchased))
+summary(as.factor(result$y_pred))
 
