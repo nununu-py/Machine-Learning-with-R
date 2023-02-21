@@ -1,0 +1,249 @@
+---
+title: "model development"
+author: "Nunu"
+date: "2023-02-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Import Library
+
+
+```{r}
+library(data.table)
+library(caret)
+library(caTools)
+library(randomForest)
+library(sqldf)
+library(ROCR)
+```
+
+
+## Import Data
+
+
+```{r}
+data_train <- fread("E:\\Data Science\\R\\it box\\data\\TrSet.csv", 
+                    header = TRUE,
+                    colClasses = list(
+                      numeric = c('EOP_BAL_CS', 'MTH_AVG_BAL_CS', 'MTH6_AVG_BAL_CS',
+                                  'DELTA_FUNDING_BALANCE', 'MTH_AVG_BAL_IDR',
+                                  'MTH6_AVG_BAL_IDR', 'DELTA_FUNDING_BALANCE_TD', 
+                                  'AVG_CREDIT_3MTH', 'DELTA_CREDIT_MUTATION',
+                                  'DELTA_DEBIT_MUTATION', 'AVG_DEBIT_3MTH'),
+                      character = c('CUST_NO'),
+                      factor = c('VTG', 'AGETIER', 'EDUCATION_DESC', 'GENDER',
+                                 'CUST_SEGMENT_AVG', 'DELTA_CUST_SEG', 'L_COLL', 'BAD_TAG', 
+                                 'SUM_CREDIT_LESS_3MIL', 'SUM_CREDIT_ZERO')
+                    ))
+
+data_train <- as.data.frame(data_train)
+```
+
+
+## Remove Cust NO
+
+
+```{r}
+CUST_NO <- data_train$CUST_NO
+
+data_train$CUST_NO <- NULL
+```
+
+
+## Create Function Normalization 
+
+
+```{r}
+normalize = function(x){
+  if(max(x)-min(x) == 0){
+    return(0)
+  }else{
+    return((x-min(x))/(max(x)-min(x)))
+  }
+}
+```
+
+
+## 
+
+
+```{r}
+summary(data_train$DELTA_CUST_SEG)
+levels(data_train$DELTA_CUST_SEG) = c(-1, -2, -3, -4, 0, 1, 2, 3, 4)
+```
+
+
+## Data Cleansing
+
+
+```{r}
+colNamesNumeric = colnames(data_train[, sapply(data_train, is.numeric)])
+upperLimitList = seq(colNamesNumeric)
+lowerLimitList = seq(colNamesNumeric)
+
+for(i in colNamesNumeric){
+  data_train[, i] = ifelse(is.na(data_train[, i]), 0, data_train[, i])
+}
+
+count = 1
+for(i in colNamesNumeric){
+  upperLimit = summary(data_train[, i])[5]+1.5*IQR(data_train[, i])
+  lowerLimit = summary(data_train[, i])[2]-1.5*IQR(data_train[, i])
+  data_train[, i] = ifelse(data_train[, i] < lowerLimit, lowerLimit,
+                           ifelse(data_train[, i] > upperLimit, upperLimit,
+                           data_train[, i]))
+  
+  upperLimitList[count] = upperLimit
+  lowerLimitList[count] = lowerLimit
+  count = count + 1
+  gc()
+}
+```
+
+
+## Normalize Data
+
+
+```{r}
+for(i in colNamesNumeric){
+  data_train[, i] = normalize(data_train[, i])
+}
+```
+
+
+## Create Model Random Forest
+
+
+
+```{r}
+modelRF = randomForest(BAD_TAG~.,
+                       data = data_train,
+                       ntree = 100,
+                       cutoff = c(0.5, 1-0.5))
+
+# Find Important Variable
+varImpPlot(modelRF)
+
+# Other way to Find Important Variable
+implotout = importance(modelRF)
+class(implotout)
+implotoutValues = as.data.frame.matrix(implotout)
+
+```
+
+
+## Data Test
+
+
+```{r}
+data_test <- fread("E:\\Data Science\\R\\it box\\data\\tsSet.csv", 
+                    header = TRUE,
+                    colClasses = list(
+                      numeric = c('EOP_BAL_CS', 'MTH_AVG_BAL_CS', 'MTH6_AVG_BAL_CS',
+                                  'DELTA_FUNDING_BALANCE', 'MTH_AVG_BAL_IDR',
+                                  'MTH6_AVG_BAL_IDR', 'DELTA_FUNDING_BALANCE_TD', 
+                                  'AVG_CREDIT_3MTH', 'DELTA_CREDIT_MUTATION',
+                                  'DELTA_DEBIT_MUTATION', 'AVG_DEBIT_3MTH'),
+                      character = c('CUST_NO'),
+                      factor = c('VTG', 'AGETIER', 'EDUCATION_DESC', 'GENDER',
+                                 'CUST_SEGMENT_AVG', 'DELTA_CUST_SEG', 'L_COLL', 'BAD_TAG', 
+                                 'SUM_CREDIT_LESS_3MIL', 'SUM_CREDIT_ZERO')
+                    ))
+
+data_test <- as.data.frame(data_test)
+
+CUST_NO2 <- data_test$CUST_NO
+
+data_test$CUST_NO <- NULL
+
+for(i in colNamesNumeric){
+  data_test[, i] = ifelse(is.na(data_test[, i]), 0, data_test[, i])
+}
+
+count = 1
+for(i in colNamesNumeric){
+  data_test[, i] = ifelse(data_test[, i] < lowerLimitList[count], lowerLimit,
+                           ifelse(data_test[, i] > upperLimitList[count], upperLimit,
+                           data_test[, i]))
+                          
+  count = count + 1
+}
+
+for(i in colNamesNumeric){
+  data_test[, i] = normalize(data_test[, i])
+}
+  
+```
+
+
+## Equate the number of factors in each feature on test and train data
+
+
+```{r}
+levels(data_test$DELTA_CUST_SEG) = levels(data_train$DELTA_CUST_SEG)
+levels(data_test$L_COLL) = levels(data_train$L_COLL)
+```
+
+
+## Predict 1 and 0 
+
+
+```{r}
+# result in 0 or 1
+predictionRF = predict(modelRF, data_test, type = 'response')
+
+# result in probability between 0 - 1
+predictionRF_prob = predict(modelRF, data_test, type = 'prob')
+
+pred = prediction(predictionRF_prob[, 2], data_test$BAD_TAG)
+```
+
+## ROC Table
+
+
+```{r}
+
+```
+
+
+
+## Cbind Predict Result and Data Test
+
+
+```{r}
+y_pred = as.data.frame(predictionRF_prob)
+y_pred = y_pred[2]
+
+y_pred$predicted_res = ifelse(y_pred$'1' >= 0.5, 1, 0)
+
+data_test_pred = cbind(data_test, y_pred)
+
+summary(as.factor(data_test$BAD_TAG))
+summary(as.factor(data_test_pred$predicted_res))
+```
+
+## Cbind CUST NO with result 
+
+
+```{r}
+CUST_NO_test <- as.data.frame(CUST_NO2)
+
+FinalResult <- cbind(CUST_NO_test, data_test_pred)
+```
+
+
+
+
+
+
+
+
+
+
+
+
